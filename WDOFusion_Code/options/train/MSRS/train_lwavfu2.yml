@@ -1,0 +1,186 @@
+name: Wave_PA
+model_type: WAVFUModel
+num_gpu: 1
+manual_seed: 42
+
+datasets:
+  train:
+    name: MSRS_LLVIP
+    type: WAVFUMixedDataset
+    is_train: True
+    is_RGB: False
+
+    img_size: 128
+    stride: 64
+    is_arg: True
+
+    num_worker_per_gpu: 8
+    batch_size_per_gpu: 8
+
+    mix_sources:
+      - name: MSRS
+        dataroot_source1: ./datasets/MSRS/train/ir
+        dataroot_source2: ./datasets/MSRS/train/vi
+
+      - name: LLVIP
+        dataroot_source1: ./LLVIP_train/train/ir
+        dataroot_source2: ./LLVIP_train/train/vi
+
+    dataset_enlarge_ratio: 1
+    pin_memory: true
+    prefetch_mode: cuda
+
+  val_1:
+    name: MSRS_val
+    type: WAVFUDataset
+    is_train: False
+    is_RGB: True
+    dataroot_source1: ./val_img/MSRS_val/ir
+    dataroot_source2: ./val_img/MSRS_val/vi
+  val_2:
+    name: LLVIP_val
+    type: WAVFUDataset
+    is_train: False
+    is_RGB: True
+    dataroot_source1: ./LLVIP_train/val/ir
+    dataroot_source2: ./LLVIP_train/val/vi
+
+# network structures
+network_g:
+  type: LWAVFUNet
+  inp_channels: 1
+  dim: 64
+  wavestlayer_configs: {
+        'dim': 64,
+        'input_resolution': 128,
+        'depths': [2, 2, 2, 2],
+        'num_heads_list': [4, 8, 8, 4],
+        'window_size': 16,
+        'drop_path': 0.1,
+    }
+  decoder_configs: {
+        'dim': 64,
+        'input_resolution': 128,
+        'depths': [2, 2],
+        'num_heads_list': [4, 4],
+        'window_size': 16,
+        'drop_path': 0.1,
+    }
+
+# Training settings
+train:
+  ema_decay: 0
+  clip_grad: True
+
+  optim_g:
+    type: AdamW
+    lr: !!float 2e-4
+    # lr: !!float 3e-5
+    weight_decay: !!float 1e-2
+    betas: [0.9, 0.99]
+
+  # 🚨 调度器已完美对齐：50000 + 50000 + 100000 = 200000 (大于总步数)
+  scheduler:
+    type: CosineAnnealingRestartLR
+    periods: [50000, 50000]
+    restart_weights: [1, 0.5]
+    eta_min: !!float 1e-6
+
+  phase1_iter: 0
+  total_iter: 100000 # 🚀 BS=8 时，10万步已经足够把数据集吃透几百遍了
+  warmup_iter: 2000
+
+
+  # ==========================================================
+  # 🚀 极简核心：使用我们刚写好的终极损失联合体
+  # ==========================================================
+  pixel_opt:
+    type: Ultimate_PA_Loss
+    w_int: 0.01     # 保留你原本设定的 5.0，锚定绝对亮度，提升 MI 互信息
+    w_ssim: 0.025  # 死保物理结构，直接拉升 SSIM 和 PSNR
+    w_sobel: 1.0  # 极端强化梯度，拉升 EN(熵)、SF(空间频率) 和 SD(标准差)
+    # w_sd: 1.0
+
+  # percep_vis_opt:             # 保留：提取可见光的高级语义纹理
+  #   type: PerceptualLoss
+  #   layer_weights:
+  #     'conv2_2': 1
+  #   vgg_type: vgg19
+  #   use_input_norm: True
+  #   range_norm: false
+  #   perceptual_weight: !!float 2e-2
+  #   # perceptual_weight: !!float 5e-3
+  #   style_weight: 0
+  #   criterion: l1
+
+  # percep_ir_opt:              # 保留：提取红外的高级语义特征
+  #   type: PerceptualLoss
+  #   layer_weights:
+  #     'conv5_4': 1
+  #   vgg_type: vgg19
+  #   use_input_norm: True
+  #   range_norm: false
+  #   perceptual_weight: !!float 1e-2
+  #   style_weight: 0
+  #   criterion: l1
+  # 推荐配置方案：针对提高 EN 和纹理表现力
+  # percep_vis_opt:             # 负责可见光纹理注入
+  #   type: PerceptualLoss
+  #   layer_weights:
+  #     'relu2_2': 1.0          # 关键：使用浅层特征，对边缘和细节极其敏感
+  #   vgg_type: vgg19
+  #   use_input_norm: True
+  #   range_norm: false
+  #   perceptual_weight: !!float 1e-2 # 权重设为 0.1，作为核心纹理引导
+  #   style_weight: 0
+  #   criterion: l1             # 使用 L1 相比 L2 更能保持图像锐度
+
+  # percep_ir_opt:              # 负责红外目标结构保护
+  #   type: PerceptualLoss
+  #   layer_weights:
+  #     'relu2_2': 1.0
+  #   vgg_type: vgg19
+  #   use_input_norm: True
+  #   range_norm: false
+  #   perceptual_weight: !!float 1e-3  # 红外权重设低，防止学习红外背景的平滑噪声
+  #   style_weight: 0
+  #   criterion: l1
+
+# path
+path:
+  pretrain_network_g: ~
+  strict_load_g: true
+  resume_state: ~
+
+# validation settings
+val:
+  val_freq: !!float 1.0e3
+  val_start_iter: !!float 0
+  save_img: True
+  pbar: true
+
+  metrics:
+    ssim:
+      type: calculate_ssim
+    spatial frequency:
+      type: calculate_sf
+    entropy:
+      type: calculate_entropy
+    standard deviation:
+      type: calculate_sd
+    SCD:
+      type: calculate_scd
+    QABF:
+      type: calculate_qabf
+    MI:
+      type: calculate_mutual_information
+
+# logging settings
+logger:
+  print_freq: 200
+  save_checkpoint_freq: 1000
+  use_tb_logger: true
+
+dist_params:
+  backend: nccl
+  port: 29500

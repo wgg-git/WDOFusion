@@ -1,0 +1,79 @@
+name: New_RoadScene
+model_type: WAVFUModel
+num_gpu: 1
+manual_seed: 42
+
+# Dataset and data loader settings
+datasets:
+  # test_1:
+  #   name: MSRS
+  #   type: WAVFUDataset
+  #   is_train: False
+  #   is_RGB: True
+  #   dataroot_source1: ./test_img/MSRS/ir
+  #   dataroot_source2: ./test_img/MSRS/vi
+  # test_2:
+  #   name: TNO
+  #   type: WAVFUDataset
+  #   is_train: False
+  #   is_RGB: True
+  #   dataroot_source1: ./test_img/TNO/ir
+  #   dataroot_source2: ./test_img/TNO/vi
+  test_3:
+    name: RoadScene
+    type: WAVFUDataset
+    is_train: False
+    is_RGB: True
+    dataroot_source1: ./test_img/RoadScene/ir
+    dataroot_source2: ./test_img/RoadScene/vi
+
+# network structures
+network_g:
+  type: LWAVFUNet
+  inp_channels: 1
+  dim: 64
+  wavestlayer_configs: {
+        'dim': 64,
+        'input_resolution': 128,
+        'depths': [2, 2, 2, 2],
+        'num_heads_list': [4, 8, 8, 4],
+        'window_size': 16,
+        'drop_path': 0.1,
+    }
+  decoder_configs: {
+        'dim': 64,
+        'input_resolution': 128,
+        'depths': [2, 2],
+        'num_heads_list': [4, 4],
+        'window_size': 16,
+        'drop_path': 0.1,
+    }
+
+# path
+path:
+
+  pretrain_network_g: ./best.pth #最佳权重，混合数据集
+
+val:
+  save_img: True
+  suffix: ~
+  pbar: true
+  metrics:
+    entropy:
+      type: calculate_entropy
+    standard deviation:
+      type: calculate_sd
+    spatial frequency:
+      type: calculate_sf
+    ssim:
+      type: calculate_ssim
+    SCD:
+      type: calculate_scd
+    QABF:
+      type: calculate_qabf
+    VIF:
+      type: calculate_vif
+    AG:
+      type: calculate_average_gradient
+    MI:
+      type: calculate_mutual_information
